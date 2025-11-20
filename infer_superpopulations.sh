@@ -58,38 +58,43 @@ ADMIXED_SECONDARY_THRESHOLD=0.20
 
 echo ">>> Starting pipeline at $(date). Output: $OUTDIR"
 
-### Merge SNP VCFs
-echo ">>> Step 1: Merging per-sample VCFs"
-mapfile -t VCF_LIST < <(find "$SNPS_DIR" -type f -name "*.vcf.gz" | sort)
-if [[ ${#VCF_LIST[@]} -eq 0 ]]; then
-  echo "No VCFs found in $SNPS_DIR"; exit 1
-fi
-printf "%s\n" "${VCF_LIST[@]}" > tmp/vcfs.list
-$BCFTOOLS merge --threads $THREADS -Oz -o cohort.snps.merged.vcf.gz -l tmp/vcfs.list
-tabix -p vcf cohort.snps.merged.vcf.gz
+MERGED_FINAL_SNPS_VCF="/scratch.global/balay011/germline_calls/vqsr/sample_stats/final_merged/cohort.snps.merged.vcf.gz"
 
 ### Convert merged VCF to PLINK2 PGEN by acquiring autosomal biallelic SNPs
-echo ">>> Step 2: Import autosomal biallelic SNPs directly to PGEN"
+echo ">>> Step 1: Import autosomal biallelic SNPs directly to PGEN"
 $PLINK2 --threads $THREADS \
-  --vcf cohort.snps.merged.vcf.gz \
+  --vcf $MERGED_FINAL_SNPS_VCF \
   --autosome \
   --snps-only just-acgt \
   --max-alleles 2 \
-  --set-missing-var-ids @:#:$r:$a \
+  --set-all-var-ids @:#:\$r:\$a \
+  --rm-dup force-first \
   --make-pgen --out cohort1_auto
+# --vcf: 23062756 variants scanned (745012 skipped).
+# --vcf: cohort1_auto-temporary.pgen + cohort1_auto-temporary.pvar.zst +
+# cohort1_auto-temporary.psam written.
+# 215 samples (0 females, 0 males, 215 ambiguous; 215 founders) loaded from
+# cohort1_auto-temporary.psam.
+# 22919404 out of 23062756 variants loaded from cohort1_auto-temporary.pvar.zst.
+# Note: No phenotype data present.
+# Note: Skipping --rm-dup since no duplicate IDs are present.
+# 22919404 variants remaining after main filters.
+# Writing cohort1_auto.psam ... done.
+# Writing cohort1_auto.pvar ... done.
+# Writing cohort1_auto.pgen ... done.
 
 ### Missingness, MAF, relatedness
-echo ">>> Step 3: Filtering (mind=$MIND, geno=$GENO, maf=$MAF_CUTOFF), KING>$KING_CUTOFF"
+echo ">>> Step 2: Filtering (mind=$MIND, geno=$GENO, maf=$MAF_CUTOFF), KING>$KING_CUTOFF"
 $PLINK2 --threads $THREADS --pfile cohort1_auto \
   --geno $GENO \
   --make-pgen --out cohort2_auto
 # 215 samples (0 females, 0 males, 215 ambiguous; 215 founders) loaded from
 # cohort1_auto.psam.
-# 22519078 variants loaded from cohort1_auto.pvar.
+# 22919404 variants loaded from cohort1_auto.pvar.
 # Note: No phenotype data present.
 # Calculating allele frequencies... done.
-# --geno: 22043945 variants removed due to missing genotype data.
-# 475133 variants remaining after main filters.
+# --geno: 10724690 variants removed due to missing genotype data.
+# 12194714 variants remaining after main filters.
 # Writing cohort2_auto.psam ... done.
 # Writing cohort2_auto.pvar ... done.
 # Writing cohort2_auto.pgen ... done.
@@ -98,12 +103,12 @@ $PLINK2 --threads $THREADS --pfile cohort2_auto \
   --mind $MIND --make-pgen --out cohort3_auto
 # 215 samples (0 females, 0 males, 215 ambiguous; 215 founders) loaded from
 # cohort2_auto.psam.
-# 475133 variants loaded from cohort2_auto.pvar.
+# 12194714 variants loaded from cohort2_auto.pvar.
 # Note: No phenotype data present.
 # Calculating sample missingness rates... done.
-# 12 samples removed due to missing genotype data (--mind).
+# 15 samples removed due to missing genotype data (--mind).
 # IDs written to cohort3_auto.mindrem.id .
-# 203 samples (0 females, 0 males, 203 ambiguous; 203 founders) remaining after
+# 200 samples (0 females, 0 males, 200 ambiguous; 200 founders) remaining after
 # main filters.
 # Writing cohort3_auto.psam ... done.
 # Writing cohort3_auto.pvar ... done.
@@ -115,10 +120,13 @@ $PLINK2 --threads $THREADS --pfile cohort2_auto \
 # SRR1018300_sortedbycoords_MD_BQ
 # SRR606394_sorted_MD_BQ
 # SRR606396_sorted_MD_BQ
+# SRR619138_sortedbycoords_MD_BQ
 # SRR619144_sortedbycoords_MD_BQ
 # SRR619150_sortedbycoords_MD_BQ
 # SRR619156_sortedbycoords_MD_BQ
 # SRR619160_sortedbycoords_MD_BQ
+# SRR619166_sortedbycoords_MD_BQ
+# SRR619171_sortedbycoords_MD_BQ
 # SRR619178_sortedbycoords_MD_BQ
 # SRR619184_sortedbycoords_MD_BQ
 # SRR619189_sortedbycoords_MD_BQ
@@ -127,18 +135,17 @@ $PLINK2 --threads $THREADS --pfile cohort2_auto \
 
 $PLINK2 --threads $THREADS --pfile cohort3_auto \
   --maf $MAF_CUTOFF --make-pgen --out cohort4_auto
-# 203 samples (0 females, 0 males, 203 ambiguous; 203 founders) loaded from
+# 200 samples (0 females, 0 males, 200 ambiguous; 200 founders) loaded from
 # cohort3_auto.psam.
-# 475133 variants loaded from cohort3_auto.pvar.
+# 12194714 variants loaded from cohort3_auto.pvar.
 # Note: No phenotype data present.
 # Calculating allele frequencies... done.
-# 174245 variants removed due to allele frequency threshold(s)
+# 5735237 variants removed due to allele frequency threshold(s)
 # (--maf/--max-maf/--mac/--max-mac).
-# 300888 variants remaining after main filters.
+# 6459477 variants remaining after main filters.
 # Writing cohort4_auto.psam ... done.
 # Writing cohort4_auto.pvar ... done.
 # Writing cohort4_auto.pgen ... done.
-
 
 ### LD pruning
 echo ">>> Step 4: LD pruning with r^2 <= $PRUNE_R2"
@@ -148,12 +155,12 @@ $PLINK2 --threads $THREADS --pfile cohort4_auto \
 
 $PLINK2 --threads $THREADS --pfile cohort4_auto --extract tmp/pruned.prune.in \
   --make-bed --out cohort5_pruned
-# 203 samples (0 females, 0 males, 203 ambiguous; 203 founders) loaded from
+# 200 samples (0 females, 0 males, 200 ambiguous; 200 founders) loaded from
 # cohort4_auto.psam.
-# 300888 variants loaded from cohort4_auto.pvar.
+# 6459477 variants loaded from cohort4_auto.pvar.
 # Note: No phenotype data present.
-# --extract: 31280 variants remaining.
-# 31280 variants remaining after main filters.
+# --extract: 433106 variants remaining.
+# 433106 variants remaining after main filters.
 # Writing cohort5_pruned.fam ... done.
 # Writing cohort5_pruned.bim ... done.
 # Writing cohort5_pruned.bed ... done.
@@ -170,9 +177,9 @@ $PLINK2 --threads $THREADS --bfile cohort5_pruned --make-king-table --king-cutof
 # 0	SRR619172_sortedbycoords_MD_BQ - matches SRR619171_sortedbycoords_MD_BQ with 50% kinship
 
 $PLINK2 --threads $THREADS --bfile cohort5_pruned --keep logs/king_cohort_duplicates.king.cutoff.in.id --make-pgen --out cohort5_unrel
-# 203 samples (0 females, 0 males, 203 ambiguous; 203 founders) loaded from
-# cohort4_auto.psam.
-# 300888 variants loaded from cohort4_auto.pvar.
+# 200 samples (0 females, 0 males, 200 ambiguous; 200 founders) loaded from
+# cohort5_pruned.fam.
+# 433106 variants loaded from cohort5_pruned.bim.
 # Note: No phenotype data present.
 # --keep: 199 samples remaining.
 # 199 samples (0 females, 0 males, 199 ambiguous; 199 founders) remaining after
@@ -182,26 +189,49 @@ $PLINK2 --threads $THREADS --bfile cohort5_pruned --keep logs/king_cohort_duplic
 # Writing cohort5_unrel.pgen ... done.
 
 
-
 ######################## II) Processing of 1KG phase 3 SNPs with vcf SNPs to make PCs
 # Reference basename (BED/BIM/FAM or PGEN/PVAR/PSAM)
-REF1KG_PLINK_PREFIX="/home/aventeic/balay011/references/plink_1kg_files/all_hg38"
+REF1KG_PLINK_PREFIX="$MSIPROJECT/balay011/references/plink_1kg_files/all_hg38"
 # 3202-sample panel: FamilyID SampleID FatherID MotherID Sex Population Superpopulation
-REF1KG_PANEL="/home/aventeic/balay011/references/plink_1kg_files/20130606_g1k_3202_samples_ped_population.txt"
+REF1KG_PANEL="$MSIPROJECT/balay011/references/plink_1kg_files/20130606_g1k_3202_samples_ped_population.txt"
 
 # Convert PGEN to BED if needed
 $PLINK2 --threads $THREADS \
-  --pfile /home/aventeic/balay011/references/plink_1kg_files/all_hg38 \
+  --pfile $MSIPROJECT/balay011/references/plink_1kg_files/all_hg38 \
   --autosome \
   --snps-only just-acgt \
   --max-alleles 2 \
   --geno $GENO \
   --make-bed --out ref/1kg_auto_1
+# 3202 samples (1603 females, 1598 males, 1 ambiguous; 2583 founders) loaded from
+# /projects/standard/aventeic/balay011/references/plink_1kg_files/all_hg38.psam.
+# Note: 2585 nonstandard chromosome codes present.
+# 61599150 out of 75193455 variants loaded from
+# /projects/standard/aventeic/balay011/references/plink_1kg_files/all_hg38.pvar.
+# 2 categorical phenotypes loaded.
+# Calculating allele frequencies... done.
+# --geno: 0 variants removed due to missing genotype data.
+# 61599150 variants remaining after main filters.
+# Writing ref/1kg_auto_1.fam ... done.
+# Writing ref/1kg_auto_1.bim ... done.
+# Writing ref/1kg_auto_1.bed ... done.
 
 $PLINK2 --threads $THREADS \
   --bfile ref/1kg_auto_1 \
   --mind $MIND \
   --make-bed --out ref/1kg_auto_2
+# 3202 samples (1603 females, 1598 males, 1 ambiguous; 2583 founders) loaded from
+# ref/1kg_auto_1.fam.
+
+# 61599150 variants loaded from ref/1kg_auto_1.bim.
+# Note: No phenotype data present.
+# Calculating sample missingness rates... done.
+# 0 samples removed due to missing genotype data (--mind).
+# 3202 samples (1603 females, 1598 males, 1 ambiguous; 2583 founders) remaining
+# after main filters.
+# Writing ref/1kg_auto_2.fam ... done.
+# Writing ref/1kg_auto_2.bim ... done.
+# Writing ref/1kg_auto_2.bed ... done.
 
 $PLINK2 --threads $THREADS \
   --bfile ref/1kg_auto_2 \
@@ -233,7 +263,6 @@ $PLINK2 --threads $THREADS --bfile ref/1kg_auto_3 --make-king-table --king-cutof
 $PLINK2 --threads $THREADS --bfile ref/1kg_auto_3 --keep logs/king_1kg_duplicates.king.cutoff.in.id --make-pgen --out ref/1kg_auto_unrel
 # 3202 samples (1603 females, 1598 males, 1 ambiguous; 2583 founders) loaded from
 # ref/1kg_auto_3.fam.
-
 # 12586887 variants loaded from ref/1kg_auto_3.bim.
 # Note: No phenotype data present.
 # --keep: 3202 samples remaining.
@@ -246,13 +275,30 @@ $PLINK2 --threads $THREADS --bfile ref/1kg_auto_3 --keep logs/king_1kg_duplicate
 ### Re-ID each dataset to CHR:POS:REF:ALT
 $PLINK2 --threads $THREADS --pfile ref/1kg_auto_unrel \
   --snps-only just-acgt --max-alleles 2 \
-  --set-all-var-ids @:#:\$r:\$a --new-id-max-allele-len 200 \
+  --set-all-var-ids @:#:\$r:\$a --rm-dup force-first --new-id-max-allele-len 200 \
   --make-pgen --out tmp/1kg_reid
+# 3202 samples (1603 females, 1598 males, 1 ambiguous; 2583 founders) loaded from
+# ref/1kg_auto_unrel.psam.
+# 12586887 variants loaded from ref/1kg_auto_unrel.pvar.
+# Note: No phenotype data present.
+# Note: Skipping --rm-dup since no duplicate IDs are present.
+# 12586887 variants remaining after main filters.
+# Writing tmp/1kg_reid.psam ... done.
+# Writing tmp/1kg_reid.pvar ... done.
+# Writing tmp/1kg_reid.pgen ... done.
 
 $PLINK2 --threads $THREADS --pfile cohort5_unrel \
   --snps-only just-acgt --max-alleles 2 \
   --set-all-var-ids @:#:\$r:\$a --new-id-max-allele-len 200 \
   --make-pgen --out tmp/cohort_reid
+# 199 samples (0 females, 0 males, 199 ambiguous; 199 founders) loaded from
+# cohort5_unrel.psam.
+# 433106 variants loaded from cohort5_unrel.pvar.
+# Note: No phenotype data present.
+# 433106 variants remaining after main filters.
+# Writing tmp/cohort_reid.psam ... done.
+# Writing tmp/cohort_reid.pvar ... done.
+# Writing tmp/cohort_reid.pgen ... done.
 
 ### Acquire common SNPs between 1KG and cohort
 awk 'NR>1{print $3}' tmp/1kg_reid.pvar    | sort -u > tmp/1kg.ids
@@ -260,18 +306,36 @@ awk 'NR>1{print $3}' tmp/cohort_reid.pvar | sort -u > tmp/cohort.ids
 comm -12 tmp/1kg.ids tmp/cohort.ids > tmp/common.ids
 wc -l tmp/1kg.ids tmp/cohort.ids tmp/common.ids
 #  12586887 tmp/1kg.ids
-#     31280 tmp/cohort.ids
-#     30152 tmp/common.ids
-#  12648319 total
+#    433106 tmp/cohort.ids
+#    240254 tmp/common.ids
+#  13260247 total
 
 ### Extract common SNPs between 1KG and cohort
 $PLINK2 --threads $THREADS --pfile tmp/1kg_reid \
   --extract tmp/common.ids \
   --make-bed --out pca/1kg_aligned
+# 3202 samples (1603 females, 1598 males, 1 ambiguous; 2583 founders) loaded from
+# tmp/1kg_reid.psam.
+# 12586887 variants loaded from tmp/1kg_reid.pvar.
+# Note: No phenotype data present.
+# --extract: 240254 variants remaining.
+# 240254 variants remaining after main filters.
+# Writing pca/1kg_aligned.fam ... done.
+# Writing pca/1kg_aligned.bim ... done.
+# Writing pca/1kg_aligned.bed ... done.
 
 $PLINK2 --threads $THREADS --pfile tmp/cohort_reid \
   --extract tmp/common.ids \
   --make-bed --out pca/cohort_aligned
+# 199 samples (0 females, 0 males, 199 ambiguous; 199 founders) loaded from
+# tmp/cohort_reid.psam.
+# 433106 variants loaded from tmp/cohort_reid.pvar.
+# Note: No phenotype data present.
+# --extract: 240254 variants remaining.
+# 240254 variants remaining after main filters.
+# Writing pca/cohort_aligned.fam ... done.
+# Writing pca/cohort_aligned.bim ... done.
+# Writing pca/cohort_aligned.bed ... done.
 
 diff -s pca/1kg_aligned.bim pca/cohort_aligned.bim 
 
@@ -289,11 +353,38 @@ $PLINK --bfile "${OUTDIR}/pca/cohort_aligned" \
 $PLINK2 --bfile "${OUTDIR}/pca/merged_all_autosomes_bed" \
   --make-pgen \
   --out "${OUTDIR}/pca/merged_all_autosomes"
+# 3401 samples (1603 females, 1598 males, 200 ambiguous; 2782 founders) loaded
+# from /scratch.global/balay011/gwas_qc_struct/pca/merged_all_autosomes_bed.fam.
+# 240254 variants loaded from
+# /scratch.global/balay011/gwas_qc_struct/pca/merged_all_autosomes_bed.bim.
+# Note: No phenotype data present.
+# Writing /scratch.global/balay011/gwas_qc_struct/pca/merged_all_autosomes.psam
+# ... done.
+# Writing /scratch.global/balay011/gwas_qc_struct/pca/merged_all_autosomes.pvar
+# ... done.
+# Writing /scratch.global/balay011/gwas_qc_struct/pca/merged_all_autosomes.pgen
+# ... done.
 
 ### PCA 
 $PLINK2 --pfile "${OUTDIR}/pca/merged_all_autosomes" \
   --pca approx 20 allele-wts \
   --out "${OUTDIR}/pca/pca_all"
+# 3401 samples (1603 females, 1598 males, 200 ambiguous; 2782 founders) loaded
+# from /scratch.global/balay011/gwas_qc_struct/pca/merged_all_autosomes.psam.
+# 240254 variants loaded from
+# /scratch.global/balay011/gwas_qc_struct/pca/merged_all_autosomes.pvar.
+# Note: No phenotype data present.
+# Calculating allele frequencies... done.
+# Warning: "--pca approx" is only recommended for analysis of >5000 samples.
+# Projecting random vectors (8 compute threads)... 
+# Projecting random vectors (8 compute threads)... 21/21.
+# Computing SVD of Krylov matrix... done.
+# Recovering top PCs from range approximation... done.
+# --pca approx: Allele weights written to
+# /scratch.global/balay011/gwas_qc_struct/pca/pca_all.eigenvec.allele .
+# --pca approx: Eigenvectors written to
+# /scratch.global/balay011/gwas_qc_struct/pca/pca_all.eigenvec , and eigenvalues
+# written to /scratch.global/balay011/gwas_qc_struct/pca/pca_all.eigenval .
 
 echo "PCA done:"
 echo "  PCs:     ${OUTDIR}/pca/pca_all.eigenvec"
