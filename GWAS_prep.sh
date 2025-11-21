@@ -180,10 +180,17 @@ ${BCFTOOLS} sort -Oz -o cohort.eas.cases.indels.vcf.gz
 tabix -p vcf cohort.eas.cases.indels.vcf.gz
 
 ######################## Split sex inference files by ancestry
-grep -F -f "$CHORD_EUR_SAMPLE_LIST" qc/tumors.sex.sexcheck | cut -f1,2,4 > qc/tumors.eur.sex.psam
-grep -F -f "$CHORD_EAS_SAMPLE_LIST" qc/tumors.sex.sexcheck | cut -f1,2,4 > qc/tumors.eas.sex.psam
-grep -F -f "$ALL_EUR_SAMPLE_LIST" eur/eur_ctrls_snps_sexcheck.sexcheck | cut -f1,2,4 > qc/1kg.ctrl.eur.sex.psam
-grep -F -f "$ALL_EAS_SAMPLE_LIST" eas/eas_ctrls_snps_sexcheck.sexcheck | cut -f1,2,4 > qc/1kg.ctrl.eas.sex.psam
+echo -e "#FID\tIID\tSEX" > qc/tumors.eur.sex.psam
+grep -F -f "$CHORD_EUR_SAMPLE_LIST" qc/tumors.sex.sexcheck | cut -f1,2,4 >> qc/tumors.eur.sex.psam
+
+echo -e "#FID\tIID\tSEX" > qc/tumors.eas.sex.psam
+grep -F -f "$CHORD_EAS_SAMPLE_LIST" qc/tumors.sex.sexcheck | cut -f1,2,4 >> qc/tumors.eas.sex.psam
+
+echo -e "#FID\tIID\tSEX" > qc/1kg.ctrl.eur.sex.psam
+grep -F -f "$ALL_EUR_SAMPLE_LIST" eur/eur_ctrls_snps_sexcheck.sexcheck | cut -f1,2,4 >> qc/1kg.ctrl.eur.sex.psam
+
+echo -e "#FID\tIID\tSEX" > qc/1kg.ctrl.eas.sex.psam
+grep -F -f "$ALL_EAS_SAMPLE_LIST" eas/eas_ctrls_snps_sexcheck.sexcheck | cut -f1,2,4 >> qc/1kg.ctrl.eas.sex.psam
 
 ######################## Generate phenotype files for GWAS analysis
 echo ">>> Generating phenotype files for GWAS analysis"
