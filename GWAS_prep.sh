@@ -38,11 +38,13 @@ mkdir -p "${OUTDIR}"/{qc,tmp,eur,eas}
 cd "$OUTDIR"
 
 ### Other files
-REF="/home/aventeic/balay011/references/reference_genome/GRCh38.primary_assembly.genome.fa"
-ALL_EUR_SAMPLE_LIST="$OUTDIR/all_eur_samples.txt"         # one IID per line (cases + controls)
-ALL_EAS_SAMPLE_LIST="$OUTDIR/all_eas_samples.txt"         # one IID per line (cases + controls)
-CHORD_EUR_SAMPLE_LIST="$OUTDIR/chord_eur_samples.txt"    # one IID per line (cases only)
-CHORD_EAS_SAMPLE_LIST="$OUTDIR/chord_eas_samples.txt"    # one IID per line (cases only)
+REF="$MSIPROJECT/balay011/references/reference_genome/GRCh38.primary_assembly.genome.fa"
+ALL_EUR_SAMPLE_LIST="$OUTDIR/ctrl_eur_samples.txt"         # one IID per line (controls with european ancestry)
+ALL_EAS_SAMPLE_LIST="$OUTDIR/ctrl_eas_samples.txt"         # one IID per line (controls with eastern asian ancestry)
+CHORD_EUR_SAMPLE_LIST="$OUTDIR/chord_eur_samples.txt"    # one IID per line (chordoma with > 50% european ancestry)
+CHORD_EAS_SAMPLE_LIST="$OUTDIR/chord_eas_samples.txt"    # one IID per line (chordoma with > 50% eastern asian ancestry)
+MERGED_FINAL_SNPS_VCF="/scratch.global/balay011/germline_calls/vqsr/sample_stats/final_merged/cohort.snps.merged.vcf.gz"
+MERGED_FINAL_INDELS_VCF="/scratch.global/balay011/germline_calls/vqsr/sample_stats/final_merged/cohort.indels.merged.vcf.gz"
 
 ######################## Subset 1KG panel by ancestry (EUR/EAS)
 echo ">>> Subsetting 1KG per-chrom VCFs by ancestry from ${ONEKG_DIR}"
@@ -118,61 +120,79 @@ $PLINK2 --pfile $OUTDIR/eas/eas_ctrls_snps_raw \
 #   SNPSEX = inferred (1/2/0=ambiguous)
 #   F = X inbreeding coefficient (≈ males → ~1, females → ~0)
 
-######################## Merge all germline SNP VCFs
-echo ">>> Merging per-sample SNP VCFs"
-mapfile -t SNP_VCF_LIST < <(find "$SNPS_DIR" -type f -name "*.vcf.gz" | sort)
-[[ ${#SNP_VCF_LIST[@]} -gt 0 ]] || { echo "No VCFs found in $SNPS_DIR"; exit 1; }
-printf "%s\n" "${SNP_VCF_LIST[@]}" > tmp/snps_all.list
-${BCFTOOLS} merge --threads $THREADS -Oz -o cohort.snps.merged.vcf.gz -l tmp/snps_all.list
-tabix -p vcf cohort.snps.merged.vcf.gz
+######################## Create PLINK .psam file for tumor samples sex information
+zgrep -m 1 "^#CHROM" $MERGED_FINAL_SNPS_VCF | cut -f10- | tr '\t' '\n' \
+ | awk 'BEGIN{print "#FID IID SEX"} {print $1, $1, 0}' OFS='\t' \
+ > tumors.sex.psam
 
-######################## Merge all germline INDEL VCFs
-echo ">>> Merging per-sample INDEL VCFs"
-mapfile -t INDEL_VCF_LIST < <(find "$INDELS_DIR" -type f -name "*.vcf.gz" | sort)
-[[ ${#INDEL_VCF_LIST[@]} -gt 0 ]] || { echo "No VCFs found in $INDELS_DIR"; exit 1; }
-printf "%s\n" "${INDEL_VCF_LIST[@]}" > tmp/indels_all.list
-${BCFTOOLS} merge --threads $THREADS -Oz -o cohort.indels.merged.vcf.gz -l tmp/indels_all.list
-tabix -p vcf cohort.indels.merged.vcf.gz
-
-######################## Convert merged VCFs to PLINK2 PGEN
+######################## Convert merged tumor VCFs to PLINK2 PGEN
 echo ">>> Import SNPs directly to PGEN"
-$PLINK2 --threads $THREADS --psam $OUTDIR/tumors.sex.psam --vcf cohort.snps.merged.vcf.gz --split-par b38 --make-pgen --out cohort1_cases_snps
+$PLINK2 --threads $THREADS --psam $OUTDIR/tumors.sex.psam --vcf $MERGED_FINAL_SNPS_VCF --split-par b38 --make-pgen --out cohort1_cases_snps
 
 echo ">>> Import INDELs directly to PGEN"
-$PLINK2 --threads $THREADS --psam $OUTDIR/tumors.sex.psam --vcf cohort.indels.merged.vcf.gz --split-par b38 --make-pgen --out cohort1_cases_indels
+$PLINK2 --threads $THREADS --psam $OUTDIR/tumors.sex.psam --vcf $MERGED_FINAL_INDELS_VCF --split-par b38 --make-pgen --out cohort1_cases_indels
 
 ######################## Sex inference by chrX chromosome
 echo ">>> Inferring sex from chrX (split PAR)"
 $PLINK2 --pfile cohort1_cases_snps --check-sex max-female-xf=0.2 min-male-xf=0.8 --threads ${THREADS} --out qc/tumors.sex
+# Comments: despite extremely low F values ~ -1 for females, most of them are actual females except Chord_55b which may be outlier
+
+######################## SNP call rate stats
+echo ">>> Estimate per-sample SNP call rates"
+$PLINK2 --pfile cohort1_cases_snps \
+       --missing \
+       --out sample_snp_callrate
+
+######################## INDEL call rate stats
+echo ">>> Estimate per-sample INDEL call rates"
+$PLINK2 --pfile cohort1_cases_indels \
+       --missing \
+       --out sample_indel_callrate
 
 ######################## Split SNPs and INDEL VCFs by ancestry 
 echo ">>> Splitting cases by ancestry (EUR/EAS)"
 ${BCFTOOLS} view --threads "$THREADS" \
-  -S "$CHORD_EUR_SAMPLE_LIST" -Ou cohort.snps.merged.vcf.gz | \
+  -S "$CHORD_EUR_SAMPLE_LIST" -Ou $MERGED_FINAL_SNPS_VCF | \
 ${BCFTOOLS} norm --threads "$THREADS" \
   -f "$REF" -m -both -Ou | \
 ${BCFTOOLS} sort -Oz -o cohort.eur.cases.snps.vcf.gz
 tabix -p vcf cohort.eur.cases.snps.vcf.gz
 
 ${BCFTOOLS} view --threads "$THREADS" \
-  -S "$CHORD_EAS_SAMPLE_LIST" -Ou cohort.snps.merged.vcf.gz | \
+  -S "$CHORD_EAS_SAMPLE_LIST" -Ou $MERGED_FINAL_SNPS_VCF | \
 ${BCFTOOLS} norm --threads "$THREADS" \
   -f "$REF" -m -both -Ou | \
 ${BCFTOOLS} sort -Oz -o cohort.eas.cases.snps.vcf.gz
 tabix -p vcf cohort.eas.cases.snps.vcf.gz
 
 ${BCFTOOLS} view --threads "$THREADS" \
-  -S "$CHORD_EUR_SAMPLE_LIST" -Ou cohort.indels.merged.vcf.gz | \
+  -S "$CHORD_EUR_SAMPLE_LIST" -Ou $MERGED_FINAL_INDELS_VCF | \
 ${BCFTOOLS} norm --threads "$THREADS" \
   -f "$REF" -m -both -Ou | \
 ${BCFTOOLS} sort -Oz -o cohort.eur.cases.indels.vcf.gz
 tabix -p vcf cohort.eur.cases.indels.vcf.gz
 
 ${BCFTOOLS} view --threads "$THREADS" \
-  -S "$CHORD_EAS_SAMPLE_LIST" -Ou cohort.indels.merged.vcf.gz | \
+  -S "$CHORD_EAS_SAMPLE_LIST" -Ou $MERGED_FINAL_INDELS_VCF | \
 ${BCFTOOLS} norm --threads "$THREADS" \
   -f "$REF" -m -both -Ou | \
 ${BCFTOOLS} sort -Oz -o cohort.eas.cases.indels.vcf.gz
 tabix -p vcf cohort.eas.cases.indels.vcf.gz
+
+######################## Split sex inference files by ancestry
+grep -F -f "$CHORD_EUR_SAMPLE_LIST" qc/tumors.sex.sexcheck | cut -f1,2,4 > qc/tumors.eur.sex.psam
+grep -F -f "$CHORD_EAS_SAMPLE_LIST" qc/tumors.sex.sexcheck | cut -f1,2,4 > qc/tumors.eas.sex.psam
+grep -F -f "$ALL_EUR_SAMPLE_LIST" eur/eur_ctrls_snps_sexcheck.sexcheck | cut -f1,2,4 > qc/1kg.ctrl.eur.sex.psam
+grep -F -f "$ALL_EAS_SAMPLE_LIST" eas/eas_ctrls_snps_sexcheck.sexcheck | cut -f1,2,4 > qc/1kg.ctrl.eas.sex.psam
+
+######################## Generate phenotype files for GWAS analysis
+echo ">>> Generating phenotype files for GWAS analysis"
+echo -e "FID\tIID\tTUMOR" > eur/pheno_eur.txt
+awk '{print $1, $2, 2}' OFS='\t' qc/tumors.eur.sex.psam >> eur/pheno_eur.txt
+awk '{print $1, $2, 1}' OFS='\t' qc/1kg.ctrl.eur.sex.psam >> eur/pheno_eur.txt
+
+echo -e "FID\tIID\tTUMOR" > eas/pheno_eas.txt
+awk '{print $1, $2, 2}' OFS='\t' qc/tumors.eas.sex.psam >> eas/pheno_eas.txt
+awk '{print $1, $2, 1}' OFS='\t' qc/1kg.ctrl.eas.sex.psam >> eas/pheno_eas.txt
 
 echo "[$(date)] Done."
